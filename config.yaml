@@ -1,0 +1,21 @@
+# config.yaml
+
+sasha@starnix.net:
+  name: "Sasha Karcz"
+  avatar: "https://cdn.fosstodon.org/accounts/avatars/107/339/799/857/005/540/original/777632f4b7102d4f.png"
+  openid: "https://auth.starnix.net/"
+  github: "https://github.com/sashakarcz"
+  mastodon: "https://fosstodon.org/@astrognome"
+  tailscale: "https://auth.starnix.net/application/o/tailscale/"
+  profile: ""
+
+bob@example.com:
+  name: "Bob Foo"
+  github: "https://github.com/bob"
+  openid: "https://sso.example.com/"
+
+https://example.com/user/charlie:
+  name: "Charlie Baz"
+  profile: "https://example.com/user/charlie"
+  mastodon: "https://hachyderm.io/@charlie"
+
