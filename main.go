@@ -67,6 +67,7 @@ func autoReloadConfig() {
 
 func webfingerHandler(w http.ResponseWriter, r *http.Request) {
 	resource := r.URL.Query().Get("resource")
+	rel := r.URL.Query().Get("rel") // Specific relation requested
 
 	// If no resource is provided, use the default user
 	if resource == "" {
@@ -89,7 +90,30 @@ func webfingerHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Construct WebFinger response
+	// Mapping of rel values to YAML keys
+	relMap := map[string]string{
+		"http://webfinger.net/rel/profile-page":     "profile",
+		"http://webfinger.net/rel/avatar":          "avatar",
+		"http://openid.net/specs/connect/1.0/issuer": "openid",
+		"https://tailscale.com/rel":                "tailscale",
+		"https://github.com":                       "github",
+		"https://mastodon.social":                  "mastodon",
+	}
+
+	// If a specific `rel` parameter is provided, return only that value
+	if rel != "" {
+		if key, ok := relMap[rel]; ok {
+			if value, exists := userData[key]; exists && value != "" {
+				w.Header().Set("Content-Type", "text/plain")
+				w.Write([]byte(value))
+				return
+			}
+		}
+		http.Error(w, "Requested rel not found", http.StatusNotFound)
+		return
+	}
+
+	// Construct full WebFinger response
 	response := WebFingerResource{
 		Subject: fmt.Sprintf("acct:%s", resource),
 		Links: []Link{
