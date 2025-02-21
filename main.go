@@ -28,6 +28,7 @@ var (
 	configLock  sync.RWMutex
 	configFile  = "config.yaml"
 	reloadEvery = 30 * time.Second
+	defaultUser string
 )
 
 func loadConfig() error {
@@ -44,7 +45,14 @@ func loadConfig() error {
 		return fmt.Errorf("failed to parse YAML: %w", err)
 	}
 
-	log.Println("Config reloaded successfully")
+	// Extract default user from config
+	if val, ok := config["default"]["user"]; ok {
+		defaultUser = val
+		delete(config, "default") // Ensure "default" is not treated as a user entry
+	} else {
+		defaultUser = ""
+	}
+
 	return nil
 }
 
@@ -60,14 +68,13 @@ func autoReloadConfig() {
 func webfingerHandler(w http.ResponseWriter, r *http.Request) {
 	resource := r.URL.Query().Get("resource")
 
+	// If no resource is provided, use the default user
 	if resource == "" {
-		// No resource provided, return default Tailscale info
-		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(Link{
-			Rel:  "https://tailscale.com/rel",
-			Href: "https://auth.starnix.net/application/o/tailscale/",
-		})
-		return
+		if defaultUser == "" {
+			http.Error(w, "No default user specified", http.StatusNotFound)
+			return
+		}
+		resource = defaultUser
 	}
 
 	// Remove "acct:" prefix if present

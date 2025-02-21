@@ -1,5 +1,8 @@
 # config.yaml
 
+default: 
+  user: "sasha@starnix.net"
+
 sasha@starnix.net:
   name: "Sasha Karcz"
   avatar: "https://cdn.fosstodon.org/accounts/avatars/107/339/799/857/005/540/original/777632f4b7102d4f.png"
