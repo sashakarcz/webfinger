@@ -100,13 +100,18 @@ func webfingerHandler(w http.ResponseWriter, r *http.Request) {
 		"https://mastodon.social":                   "mastodon",
 	}
 
-	// If a specific `rel` parameter is provided, return only that value
+	// If a specific `rel` parameter is provided, return JSON with just that relation
 	if rel != "" {
 		if key, ok := relMap[rel]; ok {
 			if value, exists := userData[key]; exists && value != "" {
-				// Special case for OpenID & Tailscale: return plain text response
-				w.Header().Set("Content-Type", "text/plain")
-				w.Write([]byte(value))
+				// Return a **valid JSON** response instead of plain text
+				response := map[string]string{
+					"rel":  rel,
+					"href": value,
+				}
+
+				w.Header().Set("Content-Type", "application/json")
+				json.NewEncoder(w).Encode(response)
 				return
 			}
 		}
