@@ -7,130 +7,115 @@ import (
 	"io/ioutil"
 	"log"
 	"net/http"
+	"os"
 	"strings"
 	"sync"
 	"time"
 )
 
-// Define a struct for WebFinger responses
-type WebFingerResponse struct {
-	Subject    string            `json:"subject"`
-	Links      []WebFingerLink   `json:"links,omitempty"`
-	Properties map[string]string `json:"properties,omitempty"`
-}
-
-// Define a struct for each WebFinger link
-type WebFingerLink struct {
+type Link struct {
 	Rel  string `json:"rel"`
 	Href string `json:"href"`
 }
 
-// Global config map
+type WebFingerResource struct {
+	Subject string `json:"subject"`
+	Links   []Link `json:"links"`
+}
+
 var (
+	config      map[string]map[string]string
+	configLock  sync.RWMutex
 	configFile  = "config.yaml"
-	webFingerData map[string]map[string]string
-	configMutex   sync.RWMutex
+	reloadEvery = 30 * time.Second
 )
 
-// Load YAML config
 func loadConfig() error {
-	configMutex.Lock()
-	defer configMutex.Unlock()
+	configLock.Lock()
+	defer configLock.Unlock()
 
-	yamlFile, err := ioutil.ReadFile(configFile)
+	data, err := ioutil.ReadFile(configFile)
 	if err != nil {
 		return fmt.Errorf("failed to read config file: %w", err)
 	}
 
-	err = yaml.Unmarshal(yamlFile, &webFingerData)
+	err = yaml.Unmarshal(data, &config)
 	if err != nil {
 		return fmt.Errorf("failed to parse YAML: %w", err)
 	}
 
-	log.Println("✔ Config reloaded successfully")
+	log.Println("Config reloaded successfully")
 	return nil
 }
 
-// Watch the YAML file for changes
-func watchConfig() {
+func autoReloadConfig() {
 	for {
-		time.Sleep(10 * time.Second) // Check every 10 seconds
-
-		err := loadConfig()
-		if err != nil {
-			log.Println("❌ Failed to reload config:", err)
+		time.Sleep(reloadEvery)
+		if err := loadConfig(); err != nil {
+			log.Println("Error reloading config:", err)
 		}
 	}
 }
 
-// WebFinger Handler
-func webFingerHandler(w http.ResponseWriter, r *http.Request) {
+func webfingerHandler(w http.ResponseWriter, r *http.Request) {
 	resource := r.URL.Query().Get("resource")
+
 	if resource == "" {
-		http.Error(w, "Missing resource parameter", http.StatusBadRequest)
+		// No resource provided, return default Tailscale info
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(Link{
+			Rel:  "https://tailscale.com/rel",
+			Href: "https://auth.starnix.net/application/o/tailscale/",
+		})
 		return
 	}
 
-	// Strip "acct:" prefix if present
-	if strings.HasPrefix(resource, "acct:") {
-		resource = strings.TrimPrefix(resource, "acct:")
-	}
+	// Remove "acct:" prefix if present
+	resource = strings.TrimPrefix(resource, "acct:")
 
-	configMutex.RLock()
-	data, found := webFingerData[resource]
-	configMutex.RUnlock()
+	configLock.RLock()
+	userData, exists := config[resource]
+	configLock.RUnlock()
 
-	if !found {
-		log.Printf("404 Not Found for resource: %s\n", resource)
+	if !exists {
 		http.Error(w, "Resource not found", http.StatusNotFound)
 		return
 	}
 
-	// Build WebFinger response
-	response := WebFingerResponse{
-		Subject:    "acct:" + resource,
-		Properties: make(map[string]string),
+	// Construct WebFinger response
+	response := WebFingerResource{
+		Subject: fmt.Sprintf("acct:%s", resource),
+		Links: []Link{
+			{Rel: "http://webfinger.net/rel/profile-page", Href: userData["profile"]},
+			{Rel: "http://webfinger.net/rel/avatar", Href: userData["avatar"]},
+			{Rel: "http://openid.net/specs/connect/1.0/issuer", Href: userData["openid"]},
+			{Rel: "https://tailscale.com/rel", Href: userData["tailscale"]},
+			{Rel: "https://github.com", Href: userData["github"]},
+			{Rel: "https://mastodon.social", Href: userData["mastodon"]},
+		},
 	}
 
-	// Map YAML attributes to WebFinger links
-	for key, value := range data {
-		if value == "" {
-			continue
-		}
-		switch key {
-		case "avatar":
-			response.Links = append(response.Links, WebFingerLink{Rel: "http://webfinger.net/rel/avatar", Href: value})
-		case "openid":
-			response.Links = append(response.Links, WebFingerLink{Rel: "http://specs.openid.net/auth/2.0/provider", Href: value})
-		case "github":
-			response.Links = append(response.Links, WebFingerLink{Rel: "https://github.com/", Href: value})
-		case "mastodon":
-			response.Links = append(response.Links, WebFingerLink{Rel: "http://joinmastodon.org/", Href: value})
-		case "tailscale":
-			response.Links = append(response.Links, WebFingerLink{Rel: "https://login.tailscale.com/", Href: value})
-		case "profile":
-			response.Links = append(response.Links, WebFingerLink{Rel: "http://webfinger.net/rel/profile-page", Href: value})
-		default:
-			response.Properties[key] = value
-		}
-	}
-
-	// Encode response as JSON
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(response)
 }
 
 func main() {
-	// Load config initially
+	// Load config on startup
 	if err := loadConfig(); err != nil {
-		log.Fatalf("❌ Error loading config: %v", err)
+		log.Fatalf("Failed to load config: %v", err)
 	}
 
-	// Start config watcher in the background
-	go watchConfig()
+	// Start automatic config reloading
+	go autoReloadConfig()
 
-	http.HandleFunc("/.well-known/webfinger", webFingerHandler)
-	log.Println("🌐 WebFinger server running on port 8000...")
-	log.Fatal(http.ListenAndServe(":8000", nil))
+	http.HandleFunc("/.well-known/webfinger", webfingerHandler)
+
+	port := os.Getenv("PORT")
+	if port == "" {
+		port = "8000"
+	}
+
+	log.Printf("WebFinger server is running on port %s...", port)
+	log.Fatal(http.ListenAndServe(":"+port, nil))
 }
 
