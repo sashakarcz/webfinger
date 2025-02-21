@@ -110,7 +110,7 @@ func webfingerHandler(w http.ResponseWriter, r *http.Request) {
 					"href": value,
 				}
 
-				w.Header().Set("Content-Type", "application/json")
+				w.Header().Set("Content-Type", "application/jrd+json")
 				json.NewEncoder(w).Encode(response)
 				return
 			}
