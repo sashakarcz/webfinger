@@ -7,6 +7,7 @@ import (
 	"io/ioutil"
 	"log"
 	"net/http"
+	"net/url"
 	"os"
 	"strings"
 	"sync"
@@ -92,18 +93,30 @@ func webfingerHandler(w http.ResponseWriter, r *http.Request) {
 
 	// Mapping of rel values to YAML keys
 	relMap := map[string]string{
-		"http://webfinger.net/rel/profile-page":     "profile",
-		"http://webfinger.net/rel/avatar":          "avatar",
+		"http://webfinger.net/rel/profile-page":      "profile",
+		"http://webfinger.net/rel/avatar":           "avatar",
 		"http://openid.net/specs/connect/1.0/issuer": "openid",
-		"https://tailscale.com/rel":                "tailscale",
-		"https://github.com":                       "github",
-		"https://mastodon.social":                  "mastodon",
+		"https://tailscale.com/rel":                 "tailscale",
+		"https://github.com":                        "github",
+		"https://mastodon.social":                   "mastodon",
 	}
 
 	// If a specific `rel` parameter is provided, return only that value
 	if rel != "" {
 		if key, ok := relMap[rel]; ok {
 			if value, exists := userData[key]; exists && value != "" {
+				// Special case for OpenID & Tailscale: Return "Host: <host>" in the body
+				if rel == "http://openid.net/specs/connect/1.0/issuer" || rel == "https://tailscale.com/rel" {
+					u, err := url.Parse(value)
+					if err == nil && u.Host != "" {
+						w.Header().Set("Content-Type", "text/plain")
+						w.WriteHeader(http.StatusOK) // 200 OK, since we're returning a body
+						w.Write([]byte(fmt.Sprintf("Host: %s", u.Host)))
+						return
+					}
+				}
+
+				// Normal case: return the value as plain text
 				w.Header().Set("Content-Type", "text/plain")
 				w.Write([]byte(value))
 				return
