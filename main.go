@@ -7,7 +7,6 @@ import (
 	"io/ioutil"
 	"log"
 	"net/http"
-	"net/url"
 	"os"
 	"strings"
 	"sync"
@@ -73,7 +72,7 @@ func webfingerHandler(w http.ResponseWriter, r *http.Request) {
 	// If no resource is provided, use the default user
 	if resource == "" {
 		if defaultUser == "" {
-			http.Error(w, "No default user specified", http.StatusNotFound)
+			http.Error(w, "Missing resource parameter and no default user set", http.StatusBadRequest)
 			return
 		}
 		resource = defaultUser
@@ -101,24 +100,11 @@ func webfingerHandler(w http.ResponseWriter, r *http.Request) {
 		"https://mastodon.social":                   "mastodon",
 	}
 
-	// ** Special Case: OpenID Connect Discovery **
-	if rel == "http://openid.net/specs/connect/1.0/issuer" {
-		if value, exists := userData["openid"]; exists && value != "" {
-			u, err := url.Parse(value)
-			if err == nil && u.Host != "" {
-				w.Header().Set("Host", u.Host)
-				w.WriteHeader(http.StatusNoContent) // 204 No Content, no body
-				return
-			}
-		}
-		http.Error(w, "Requested rel not found", http.StatusNotFound)
-		return
-	}
-
-	// If a specific `rel` parameter is provided, return only that value in JSON
+	// ** Special Case: OpenID Connect Discovery (rel query) **
 	if rel != "" {
 		if key, ok := relMap[rel]; ok {
 			if value, exists := userData[key]; exists && value != "" {
+				// Proper WebFinger response expected by Tailscale & OpenID
 				response := WebFingerResource{
 					Subject: fmt.Sprintf("acct:%s", resource),
 					Links: []Link{
@@ -131,6 +117,24 @@ func webfingerHandler(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		http.Error(w, "Requested rel not found", http.StatusNotFound)
+		return
+	}
+
+	// ** Tailscale Fix: Handle requests without resource parameter **
+	// If the request is just `https://starnix.net/.well-known/webfinger`, return Tailscale rel
+	if resource == defaultUser {
+		if tailscaleURL, exists := userData["tailscale"]; exists && tailscaleURL != "" {
+			response := WebFingerResource{
+				Subject: fmt.Sprintf("acct:%s", resource),
+				Links: []Link{
+					{Rel: "https://tailscale.com/rel", Href: tailscaleURL},
+				},
+			}
+			w.Header().Set("Content-Type", "application/json")
+			json.NewEncoder(w).Encode(response)
+			return
+		}
+		http.Error(w, "Tailscale rel not found", http.StatusNotFound)
 		return
 	}
 
