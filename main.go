@@ -48,7 +48,7 @@ func loadConfig() error {
 	// Extract default user from config
 	if val, ok := config["default"]["user"]; ok {
 		defaultUser = val
-		delete(config, "default") // Ensure "default" is not treated as a user entry
+		delete(config, "default") // Prevent treating "default" as a user entry
 	} else {
 		defaultUser = ""
 	}
@@ -72,7 +72,7 @@ func webfingerHandler(w http.ResponseWriter, r *http.Request) {
 	// If no resource is provided, use the default user
 	if resource == "" {
 		if defaultUser == "" {
-			http.Error(w, "Missing resource parameter and no default user set", http.StatusBadRequest)
+			http.Error(w, "No default user specified", http.StatusNotFound)
 			return
 		}
 		resource = defaultUser
@@ -100,19 +100,13 @@ func webfingerHandler(w http.ResponseWriter, r *http.Request) {
 		"https://mastodon.social":                   "mastodon",
 	}
 
-	// ** Special Case: OpenID Connect Discovery (rel query) **
+	// If a specific `rel` parameter is provided, return only that value
 	if rel != "" {
 		if key, ok := relMap[rel]; ok {
 			if value, exists := userData[key]; exists && value != "" {
-				// Proper WebFinger response expected by Tailscale & OpenID
-				response := WebFingerResource{
-					Subject: fmt.Sprintf("acct:%s", resource),
-					Links: []Link{
-						{Rel: rel, Href: value},
-					},
-				}
-				w.Header().Set("Content-Type", "application/json")
-				json.NewEncoder(w).Encode(response)
+				// Special case for OpenID & Tailscale: return plain text response
+				w.Header().Set("Content-Type", "text/plain")
+				w.Write([]byte(value))
 				return
 			}
 		}
@@ -120,32 +114,14 @@ func webfingerHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// ** Tailscale Fix: Handle requests without resource parameter **
-	// If the request is just `https://starnix.net/.well-known/webfinger`, return Tailscale rel
-	if resource == defaultUser {
-		if tailscaleURL, exists := userData["tailscale"]; exists && tailscaleURL != "" {
-			response := WebFingerResource{
-				Subject: fmt.Sprintf("acct:%s", resource),
-				Links: []Link{
-					{Rel: "https://tailscale.com/rel", Href: tailscaleURL},
-				},
-			}
-			w.Header().Set("Content-Type", "application/json")
-			json.NewEncoder(w).Encode(response)
-			return
-		}
-		http.Error(w, "Tailscale rel not found", http.StatusNotFound)
-		return
-	}
-
 	// Construct full WebFinger response
 	response := WebFingerResource{
 		Subject: fmt.Sprintf("acct:%s", resource),
 		Links: []Link{
-			{Rel: "http://webfinger.net/rel/profile-page", Href: userData["profile"]},
-			{Rel: "http://webfinger.net/rel/avatar", Href: userData["avatar"]},
 			{Rel: "http://openid.net/specs/connect/1.0/issuer", Href: userData["openid"]},
 			{Rel: "https://tailscale.com/rel", Href: userData["tailscale"]},
+			{Rel: "http://webfinger.net/rel/profile-page", Href: userData["profile"]},
+			{Rel: "http://webfinger.net/rel/avatar", Href: userData["avatar"]},
 			{Rel: "https://github.com", Href: userData["github"]},
 			{Rel: "https://mastodon.social", Href: userData["mastodon"]},
 		},
