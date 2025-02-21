@@ -101,24 +101,32 @@ func webfingerHandler(w http.ResponseWriter, r *http.Request) {
 		"https://mastodon.social":                   "mastodon",
 	}
 
-	// If a specific `rel` parameter is provided, return only that value
+	// ** Special Case: OpenID Connect Discovery **
+	if rel == "http://openid.net/specs/connect/1.0/issuer" {
+		if value, exists := userData["openid"]; exists && value != "" {
+			u, err := url.Parse(value)
+			if err == nil && u.Host != "" {
+				w.Header().Set("Host", u.Host)
+				w.WriteHeader(http.StatusNoContent) // 204 No Content, no body
+				return
+			}
+		}
+		http.Error(w, "Requested rel not found", http.StatusNotFound)
+		return
+	}
+
+	// If a specific `rel` parameter is provided, return only that value in JSON
 	if rel != "" {
 		if key, ok := relMap[rel]; ok {
 			if value, exists := userData[key]; exists && value != "" {
-				// Special case for OpenID & Tailscale: Return "Host: <host>" in the body
-				if rel == "http://openid.net/specs/connect/1.0/issuer" || rel == "https://tailscale.com/rel" {
-					u, err := url.Parse(value)
-					if err == nil && u.Host != "" {
-						w.Header().Set("Content-Type", "text/plain")
-						w.WriteHeader(http.StatusOK) // 200 OK, since we're returning a body
-						w.Write([]byte(fmt.Sprintf("Host: %s", u.Host)))
-						return
-					}
+				response := WebFingerResource{
+					Subject: fmt.Sprintf("acct:%s", resource),
+					Links: []Link{
+						{Rel: rel, Href: value},
+					},
 				}
-
-				// Normal case: return the value as plain text
-				w.Header().Set("Content-Type", "text/plain")
-				w.Write([]byte(value))
+				w.Header().Set("Content-Type", "application/json")
+				json.NewEncoder(w).Encode(response)
 				return
 			}
 		}
