@@ -6,7 +6,7 @@ default:
 sasha@starnix.net:
   name: "Sasha Karcz"
   avatar: "https://cdn.fosstodon.org/accounts/avatars/107/339/799/857/005/540/original/777632f4b7102d4f.png"
-  openid: "https://auth.starnix.net/"
+  openid: "https://auth.starnix.net"
   github: "https://github.com/sashakarcz"
   mastodon: "https://fosstodon.org/@astrognome"
   tailscale: "https://auth.starnix.net/application/o/tailscale/"
